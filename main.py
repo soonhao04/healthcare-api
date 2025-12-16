@@ -85,8 +85,8 @@ def generate_diet_prompt(data):
 # ----------------------------------------
 
 @app.route('/get-report', methods=['POST'])
-def get_risk_report():
-    if not client: return '{"error": "API Client not initialized."}', 500
+def get_report():
+    if not client: return '{"error": "Gemini API key not configured."}', 500
 
     patient_data = request.get_json()
 
@@ -99,17 +99,25 @@ def get_risk_report():
         )
 
         response = client.models.generate_content(
-            model='gemini-2.5-flash', # Keeping your requested model
+            model='gemini-2.5-flash', 
             contents=risk_prompt,
             config=config,
         )
 
-        return response.text, 200
+        # --- THE FIX IS HERE ---
+        # The AI gives us JSON: {"risk_level": "High", "report_markdown": "..."}
+        # We parse it HERE so the mobile app gets just the clean text.
+        import json
+        result = json.loads(response.text)
+        report_text = result.get("report_markdown", "Error: No report text found.")
+        
+        return report_text, 200
+        # -----------------------
 
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
-
+        
 @app.route('/generate-diet', methods=['POST'])
 def generate_diet():
     if not client: return '{"error": "Gemini API key not configured."}', 500
@@ -136,4 +144,5 @@ def generate_diet():
 # ----------------------------------------
 if __name__ == '__main__':
     print("Starting Flask server on port 5000...")
+
     app.run(host='0.0.0.0', port=5000, debug=True)
