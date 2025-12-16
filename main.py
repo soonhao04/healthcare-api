@@ -14,7 +14,7 @@ app = Flask(__name__)
 CORS(app)
 
 try:
-    client = genai.Client()
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 except Exception as e:
     print(f"Error initializing Gemini client: {e}")
     client = None
@@ -24,6 +24,7 @@ except Exception as e:
 # ----------------------------------------
 
 def generate_risk_prompt(patient_data):
+    # --- KEEPING YOUR ORIGINAL PERSONA ---
     persona_instruction = (
         "You are an expert Clinical Risk Analyst. Review the patient data and "
         "generate a detailed risk assessment report."
@@ -39,7 +40,7 @@ def generate_risk_prompt(patient_data):
     - Family History: {patient_data.get("Family History of NCDs")}
     """
 
-    # --- UPDATED INSTRUCTION HERE ---
+    # --- KEEPING YOUR EXACT REPORT STRUCTURE ---
     report_logic = (
         "## Overall NCD Risk Assessment\n"
         " (A single paragraph summarizing the primary risk category. "
@@ -53,16 +54,13 @@ def generate_risk_prompt(patient_data):
         " (A concluding sentence on consulting a primary care physician.)\n"
     )
 
-    output_format_instruction = (
-        "--- OUTPUT REQUIREMENTS ---\n"
-        "You must return the result strictly as valid JSON with exactly two keys:\n"
-        "1. 'risk_level': A single string value. MUST be one of: 'Low', 'Moderate', 'High', 'Critical'.\n"
-        "2. 'report_markdown': A string containing the full report formatted using Markdown headings exactly as requested below:\n"
-        f"{report_logic}\n"
-        "Do not include any text outside the JSON object."
+    # --- CHANGED: Just ask for the text directly, NO JSON ---
+    final_instruction = (
+        "Format the response using Markdown headers exactly as requested above. "
+        "Do NOT use JSON. Do NOT include any introductory text. Start directly with the report title."
     )
 
-    return f"{persona_instruction}\n{data_block}\n{output_format_instruction}"
+    return f"{persona_instruction}\n{data_block}\n{report_logic}\n{final_instruction}"
 
 def generate_diet_prompt(data):
     calories = data.get('targetCalories', 2000)
@@ -84,6 +82,10 @@ def generate_diet_prompt(data):
 # 3. API ROUTES
 # ----------------------------------------
 
+@app.route('/', methods=['GET'])
+def home():
+    return "Healthcare AI Server is Running!", 200
+
 @app.route('/get-report', methods=['POST'])
 def get_report():
     if not client: return '{"error": "Gemini API key not configured."}', 500
@@ -91,33 +93,22 @@ def get_report():
     patient_data = request.get_json()
 
     try:
+        # 1. Use the Detailed Prompt (Just without JSON)
         risk_prompt = generate_risk_prompt(patient_data)
 
-        config = genai.types.GenerateContentConfig(
-            temperature=0.3,
-            response_mime_type="application/json"
-        )
-
+        # 2. Call Gemini WITHOUT the "application/json" requirement
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
             contents=risk_prompt,
-            config=config,
         )
 
-        # --- THE FIX IS HERE ---
-        # The AI gives us JSON: {"risk_level": "High", "report_markdown": "..."}
-        # We parse it HERE so the mobile app gets just the clean text.
-        import json
-        result = json.loads(response.text)
-        report_text = result.get("report_markdown", "Error: No report text found.")
-        
-        return report_text, 200
-        # -----------------------
+        # 3. Return the text directly (Perfect for your App)
+        return response.text, 200
 
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
-        
+
 @app.route('/generate-diet', methods=['POST'])
 def generate_diet():
     if not client: return '{"error": "Gemini API key not configured."}', 500
@@ -127,7 +118,6 @@ def generate_diet():
     try:
         diet_prompt = generate_diet_prompt(data)
 
-        # Note: Diet does NOT return JSON, just plain Markdown text
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=diet_prompt,
@@ -139,10 +129,6 @@ def generate_diet():
         print(f"Error generating diet: {e}")
         return jsonify({"error": str(e)}), 500
 
-# ----------------------------------------
-# 4. SERVER START (MUST BE AT THE END)
-# ----------------------------------------
 if __name__ == '__main__':
-    print("Starting Flask server on port 5000...")
-
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
