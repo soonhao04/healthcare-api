@@ -85,8 +85,8 @@ def generate_diet_prompt(data):
 # ----------------------------------------
 
 @app.route('/get-report', methods=['POST'])
-def get_report():
-    if not client: return '{"error": "Gemini API key not configured."}', 500
+def get_risk_report():
+    if not client: return '{"error": "API Client not initialized."}', 500
 
     patient_data = request.get_json()
 
@@ -99,20 +99,12 @@ def get_report():
         )
 
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-2.5-flash', # Keeping your requested model
             contents=risk_prompt,
             config=config,
         )
 
-        # --- THE FIX IS HERE ---
-        # The AI gives us JSON: {"risk_level": "High", "report_markdown": "..."}
-        # We parse it HERE so the mobile app gets just the clean text.
-        import json
-        result = json.loads(response.text)
-        report_text = result.get("report_markdown", "Error: No report text found.")
-
-        return report_text, 200
-        # -----------------------
+        return response.text, 200
 
     except Exception as e:
         print(f"Error: {e}")
